@@ -1,3 +1,4 @@
+-- mod-version:1 -- lite-xl 1.16
 --[[
 Press ESCAPE to go into normal mode, in this mode you can move around using the "modal+" keybindings
 you find at the bottom of this file. Press I to go back to insert mode. While this plugin is inspired
@@ -34,6 +35,26 @@ end
 local function doc()
   return core.active_view.doc
 end
+
+local function eval(str)
+  local fn, err = load("return " .. str)
+  if not fn then fn, err = load(str) end
+  assert(fn, err)
+  return tostring(fn())
+end
+
+
+command.add("core.docview", {
+  ["eval:insert"] = function()
+    core.command_view:enter("Evaluate And Insert Result", function(cmd)
+      core.active_view.doc:text_input(eval(cmd))
+    end)
+  end,
+
+  ["eval:replace"] = function()
+    core.active_view.doc:replace(eval)
+  end,
+})
 
 local function append_line_if_last_line(line)
   if line >= #doc().lines then
@@ -446,9 +467,9 @@ keymap.add {
   ["modal+s"] = "modalediting:easy-motion",
   ["modal+ctrl+s"] = "doc:save",
   ["modal+ctrl+shift+p"] = "modalediting:command-finder",
-  ["modal+ctrl+p"] = "modalediting:file-finder",
+--  ["modal+ctrl+p"] = "modalediting:file-finder",
   ["modal+ctrl+o"] = "modalediting:open-file",
-  ["modal+ctrl+n"] = "modalediting:new-doc",
+--  ["modal+ctrl+n"] = "modalediting:new-doc",
   ["modal+alt+return"] = "core:toggle-fullscreen",
 
   ["modal+alt+shift+j"] = "root:split-left",
@@ -478,6 +499,7 @@ keymap.add {
   ["modal+n"] = "find-replace:repeat-find",
   ["modal+shift+n"] = "find-replace:previous-find",
   ["modal+g"] = "modalediting:go-to-line",
+  ["modal+shift+g"] = "doc:move-to-end-of-doc",
 
   ["modal+k"] = "doc:move-to-previous-line",
   ["modal+j"] = "doc:move-to-next-line",
@@ -520,8 +542,22 @@ keymap.add {
   ["modal+p"] = "modalediting:paste",
   ["modal+y"] = "modalediting:copy",
   ["modal+d"] = "modalediting:delete-line",
-  ["modal+e"] = "modalediting:delete-to-end-of-line",
+  ["modal+shift+d"] = "modalediting:delete-to-end-of-line",
   ["modal+q"] = "modalediting:delete-word",
   ["modal+x"] = "modalediting:delete-char",
   ["modal+ctrl+\\"] = "treeview:toggle",
+
+  ["modal+left"] = { "doc:move-to-previous-char", "dialog:previous-entry" },
+  ["modal+right"] = { "doc:move-to-next-char", "dialog:next-entry"},
+  ["modal+up"] = { "command:select-previous", "doc:move-to-previous-line" },
+  ["modal+down"] = { "command:select-next", "doc:move-to-next-line" },
+
+  ["modal+ctrl+p"] = { "command:select-previous", "doc:move-to-previous-line" },
+  ["modal+ctrl+n"] = { "command:select-next", "doc:move-to-next-line" },
+}
+
+keymap.add {
+  ["ctrl+p"] = { "command:select-previous", "doc:move-to-previous-line" },
+  ["ctrl+n"] = { "command:select-next", "doc:move-to-next-line" },
+  ["ctrl-h"] = "doc:backspace",
 }
