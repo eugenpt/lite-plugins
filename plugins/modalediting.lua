@@ -18,6 +18,11 @@ local config = require "core.config"
 local common = require "core.common"
 local translate = require "core.doc.translate"
 
+local StatusView = require "core.statusview"
+
+local ep_message = 'aaa'
+
+
 local mode = "insert"
 local in_easy_motion = false
 local first_easy_motion_key_pressed = false
@@ -27,6 +32,46 @@ local separated_words = {}
 local has_autoindent = system.get_file_info("data/plugins/autoindent.lua") or system.get_file_info("data/user/plugins/autoindent.lua")
 local easy_motion_color_1 = { common.color "#FFA94D" }
 local easy_motion_color_2 = { common.color "#f7c95c" }
+
+-------------------------------------------------------------------------------
+-- additions to status
+-------------------------------------------------------------------------------
+
+local function get_mode_str()
+  return mode == 'insert' and "INSERT" or "NORMAL"
+end
+
+local get_items = StatusView.get_items
+function StatusView:get_items()
+  local left, right = get_items(self)
+
+  local t_right = {
+    style.text, self.separator, style.text, '|' , self.separator, ep_message,
+    --[[(git.inserts ~= 0 or git.deletes ~= 0) and style.accent or style.text,
+    git.branch,
+    style.dim, "  ",
+    git.inserts ~= 0 and style.accent or style.text, "+", git.inserts,
+    style.dim, " / ",
+    git.deletes ~= 0 and style.accent or style.text, "-", git.deletes,
+    --]]
+  }
+  
+  local t_left = {
+    style.dim, self.separator, style.accent, get_mode_str()
+  }
+  
+  for _, item in ipairs(t_right) do
+    table.insert(right, item)
+  end
+  
+  for _, item in ipairs(t_left) do
+    table.insert(left, item)
+  end
+
+  return left, right
+end
+
+-------------------------------------------------------------------------------
 
 local function dv()
   return core.active_view
@@ -134,15 +179,27 @@ local press_first_easy_motion_key = function(key)
 end
 
 local modkey_map = {
+  ["left command"]   = "cmd",
+  ["right command"]  = "cmd",
   ["left ctrl"]   = "ctrl",
   ["right ctrl"]  = "ctrl",
   ["left shift"]  = "shift",
   ["right shift"] = "shift",
   ["left alt"]    = "alt",
+  ["right option"]= "alt",
+  ["left option"] = "alt",
   ["right alt"]   = "altgr",
 }
 
-local modkeys = { "ctrl", "alt", "altgr", "shift" }
+local modkeys = { "ctrl", "alt", "altgr", "shift", "cmd"}
+
+local modkeys_sh = {
+  [ "ctrl" ] = "C",
+  [ "alt" ] = "A",
+  [ "altgr" ] = "A",
+  [ "shift" ] = "S",
+  [ "cmd"  ] = "M",
+}
 
 local function key_to_stroke(k)
   local stroke = ""
@@ -155,14 +212,31 @@ local function key_to_stroke(k)
 end
 
 function keymap.on_key_pressed(k)
+  -- override core function
+  ep_message = ''
+  for tj = 1,4 do
+    ep_message = ep_message .. ''
+  end
   local mk = modkey_map[k]
   if mk then
+    ep_message = k
     keymap.modkeys[mk] = true
     -- work-around for windows where `altgr` is treated as `ctrl+alt`
     if mk == "altgr" then
       keymap.modkeys["ctrl"] = false
     end
   else
+    -- first - debug helper line of current stroke
+    ep_message = ''
+    for _, mk in ipairs(modkeys) do
+      if keymap.modkeys[mk] then
+        ep_message = ep_message .. modkeys_sh[mk]
+      else
+        ep_message = ep_message .. '_'
+      end
+    end
+    ep_message = ep_message .. k
+    
     local stroke = key_to_stroke(k)
     local commands
     if mode == "insert" then
@@ -209,6 +283,13 @@ function keymap.on_key_pressed(k)
     end
   end
   return false
+end
+
+function keymap.on_key_released(k)
+  local mk = modkey_map[k]
+  if mk then
+    keymap.modkeys[mk] = false
+  end
 end
 
 local draw_line_body = DocView.draw_line_body
@@ -463,10 +544,14 @@ command.add(nil, {
   end,
 })
 
-keymap.add {
+-- maybe I'll use it?
+local macos = rawget(_G, "MACOS_RESOURCES")
+
+keymap.add_direct {
   ["modal+s"] = "modalediting:easy-motion",
   ["modal+ctrl+s"] = "doc:save",
   ["modal+ctrl+shift+p"] = "modalediting:command-finder",
+  ["modal+shift+;"] = "modalediting:command-finder",
 --  ["modal+ctrl+p"] = "modalediting:file-finder",
   ["modal+ctrl+o"] = "modalediting:open-file",
 --  ["modal+ctrl+n"] = "modalediting:new-doc",
@@ -482,8 +567,8 @@ keymap.add {
   ["modal+alt+k"] = "root:switch-to-down",
 
   ["modal+ctrl+w"] = "modalediting:close",
-  ["modal+ctrl+l"] = "root:switch-to-next-tab",
-  ["modal+ctrl+h"] = "root:switch-to-previous-tab",
+  ["modal+ctrl+k"] = "root:switch-to-next-tab",
+  ["modal+ctrl+j"] = "root:switch-to-previous-tab",
   ["modal+alt+1"] = "root:switch-to-tab-1",
   ["modal+alt+2"] = "root:switch-to-tab-2",
   ["modal+alt+3"] = "root:switch-to-tab-3",
@@ -508,6 +593,7 @@ keymap.add {
   ["modal+l"] = "doc:move-to-next-char",
   ["modal+w"] = "doc:move-to-next-word-boundary",
   ["modal+b"] = "doc:move-to-previous-word-boundary",
+  ["modal+e"] = "doc:move-to-next-word-end",
   ["modal+0"] = "doc:move-to-start-of-line",
   ["modal+shift+4"] = "modalediting:end-of-line",
   ["modal+["] = "doc:move-to-previous-start-of-block",
@@ -532,7 +618,7 @@ keymap.add {
   ["modal+o"] = "modalediting:insert-on-newline-below",
   ["modal+shift+o"] = "modalediting:insert-on-newline-above",
 
-  ["modal+ctrl+j"] = "doc:join-lines",
+  ["modal+shift+j"] = "doc:join-lines",
   ["modal+u"] = "doc:undo",
   ["modal+ctrl+r"] = "doc:redo",
   ["modal+tab"] = "modalediting:indent",
@@ -554,10 +640,12 @@ keymap.add {
 
   ["modal+ctrl+p"] = { "command:select-previous", "doc:move-to-previous-line" },
   ["modal+ctrl+n"] = { "command:select-next", "doc:move-to-next-line" },
+  ["modal+ctrl+m"] = { "command:submit", "doc:newline", "dialog:select" },
 }
-
-keymap.add {
+keymap.add_direct {
   ["ctrl+p"] = { "command:select-previous", "doc:move-to-previous-line" },
   ["ctrl+n"] = { "command:select-next", "doc:move-to-next-line" },
-  ["ctrl-h"] = "doc:backspace",
+  ["ctrl+h"] = "doc:backspace",
+  ["ctrl+m"] = { "command:submit", "doc:newline", "dialog:select" },
+  ["ctrl+["] = "modalediting:switch-to-movement-mode",
 }
