@@ -1,8 +1,29 @@
 -- mod-version:1 -- lite-xl 1.16
 --[[
+ok.. 
+TODO:
+- why is there no console?
+- how can I access all the local-ish variables from hipothetical console?
+- normal mappings (i.e. C-A-X instead of "ctrl+alt+shift+x) (Shift, karl, SHIFT!!)
+- normal mappings (i.e. mapping active in normal mode) (let's face it, it's normal mode.)
+- non-normal mappings
+- a way to add them? 
+- `interpreter`, i.e. "I;;<ESC>" -> <insert on line start, add ";;", exit to normal mode>
+- - that's for macroses, yeah
+! - - that can be tested via existing command interface, I think. 
+- also, what about creating commands on the fly, emacs-style? 
+- MARKS! I mean, that's a freaking killer feature of vim
+- registers. I mean. Yeah. 
+- - also - should they really be shared between clipboard and macroses?
+- simpler mappings (f/c/*/%/}/C-o)
+- positions, man, positions (C-I/O)
+
+- move to my own repo? I mean.. after normal mappings this thing is gonna get really rewritten
+]]--
+--[[
 Press ESCAPE to go into normal mode, in this mode you can move around using the "modal+" keybindings
 you find at the bottom of this file. Press I to go back to insert mode. While this plugin is inspired
-by vim, this is not a vim emulator, it only has the most basic movement functions that vim does.
+by vim, this is not a vim emulator, it only has the most basic normal functions that vim does.
 
 Additionally, it also has easy-motion inspired functionality. In normal mode, press S to start the
 easy-motion functionality, then select wherever you want to go to. With the combination of this with
@@ -20,10 +41,10 @@ local translate = require "core.doc.translate"
 
 local StatusView = require "core.statusview"
 
-local ep_message = 'aaa'
-
+local current_seq = 'aaa'
 
 local mode = "insert"
+local last_mode = "insert"
 local in_easy_motion = false
 local first_easy_motion_key_pressed = false
 local first_key = ""
@@ -46,7 +67,7 @@ function StatusView:get_items()
   local left, right = get_items(self)
 
   local t_right = {
-    style.text, self.separator, style.text, '|' , self.separator, ep_message,
+    style.text, self.separator, style.text, '|' , self.separator, current_seq,
     --[[(git.inserts ~= 0 or git.deletes ~= 0) and style.accent or style.text,
     git.branch,
     style.dim, "  ",
@@ -80,26 +101,6 @@ end
 local function doc()
   return core.active_view.doc
 end
-
-local function eval(str)
-  local fn, err = load("return " .. str)
-  if not fn then fn, err = load(str) end
-  assert(fn, err)
-  return tostring(fn())
-end
-
-
-command.add("core.docview", {
-  ["eval:insert"] = function()
-    core.command_view:enter("Evaluate And Insert Result", function(cmd)
-      core.active_view.doc:text_input(eval(cmd))
-    end)
-  end,
-
-  ["eval:replace"] = function()
-    core.active_view.doc:replace(eval)
-  end,
-})
 
 local function append_line_if_last_line(line)
   if line >= #doc().lines then
@@ -201,6 +202,60 @@ local modkeys_sh = {
   [ "cmd"  ] = "M",
 }
 
+-- shift'ed keys to emulate shift (I know that's stupid but hey)
+local shift_keys = {
+  [";"] = ":",
+  ["§"] = "±",
+  ["`"] = "~",
+  ["1"] = "!",
+  ["2"] = "@",
+  ["3"] = "#",
+  ["4"] = "$",
+  ["5"] = "%%",
+  ["6"] = "^",
+  ["7"] = "&",
+  ["8"] = "*",
+  ["9"] = "(",
+  ["0"] = ")",
+  ["-"] = "_",
+  ["="] = "+",
+  ["%["] = "{",
+  ["%]"] = "}",
+  [";"] = ":",
+  ["'"] = "\"",
+  ["\\"] = "|",
+  [","] = "<",
+  ["%."] = ">",
+  ["/"] = "?",
+}
+-- emulate shift on key ..
+-- -- I probably could make it a single [ ], but damn that's a big list
+local function shift(k)
+  local r = string.upper(k)
+  for src,sub in pairs(shift_keys) do
+    r = r:gsub(src,sub)
+  end
+  return r
+end
+
+current_seq = shift("asff123456")
+
+local function ep_key_to_stroke(k)
+  local stroke = ""
+  
+  for _, mk in ipairs({'ctrl','alt','altgr','cmd'}) do
+    if keymap.modkeys[mk] then
+      stroke = stroke .. modkeys_sh[mk] .. '-'
+    end
+  end
+  if keymap.modkeys["shift"] then
+    stroke = stroke .. shift(k)
+  else 
+    stroke = stroke .. k
+  end
+  return stroke
+end
+
 local function key_to_stroke(k)
   local stroke = ""
   for _, mk in ipairs(modkeys) do
@@ -213,13 +268,13 @@ end
 
 function keymap.on_key_pressed(k)
   -- override core function
-  ep_message = ''
+  current_seq = ''
   for tj = 1,4 do
-    ep_message = ep_message .. ''
+    current_seq = current_seq .. ''
   end
   local mk = modkey_map[k]
   if mk then
-    ep_message = k
+    current_seq = k
     keymap.modkeys[mk] = true
     -- work-around for windows where `altgr` is treated as `ctrl+alt`
     if mk == "altgr" then
@@ -227,21 +282,23 @@ function keymap.on_key_pressed(k)
     end
   else
     -- first - debug helper line of current stroke
-    ep_message = ''
+    current_seq = ''
     for _, mk in ipairs(modkeys) do
       if keymap.modkeys[mk] then
-        ep_message = ep_message .. modkeys_sh[mk]
+        current_seq = current_seq .. modkeys_sh[mk]
       else
-        ep_message = ep_message .. '_'
+        current_seq = current_seq .. '_'
       end
     end
-    ep_message = ep_message .. k
+    current_seq = current_seq .. k
+    
+    current_seq = ep_key_to_stroke(k)
     
     local stroke = key_to_stroke(k)
     local commands
     if mode == "insert" then
       commands = keymap.map[stroke]
-    elseif mode == "movement" then
+    elseif mode == "normal" then
       commands = keymap.map["modal+" .. stroke]
     end
 
@@ -266,16 +323,16 @@ function keymap.on_key_pressed(k)
           local performed = command.perform(cmd)
           if performed then break end
         end
-        -- change to movement mode on escape after performing its normal functions
+        -- change to normal mode on escape after performing its normal functions
         if k == "escape" then
-          mode = "movement"
+          mode = "normal"
           in_easy_motion = false
         end
         return true
       end
     end
-    -- we don't want to perform any action when a command isn't found in movement mode
-    if mode == "movement" then
+    -- we don't want to perform any action when a command isn't found in normal mode
+    if mode == "normal" then
       if k == "escape" then -- work-around for also using escape to get out ot easy-motion
         in_easy_motion = false
       end
@@ -298,7 +355,7 @@ function DocView:draw_line_body(idx, x, y)
   local line, col = self.doc:get_selection()
   draw_line_body(self, idx, x, y)
 
-  if mode == "movement" then
+  if mode == "normal" then
     if line == idx and core.active_view == self
     and system.window_has_focus() then
       local lh = self:get_line_height()
@@ -334,8 +391,8 @@ function DocView:draw_line_text(idx, x, y)
 end
 
 command.add(nil, {
-  ["modalediting:switch-to-movement-mode"] = function()
-    mode = "movement"
+  ["modalediting:switch-to-normal-mode"] = function()
+    mode = "normal"
   end,
 
   ["modalediting:switch-to-insert-mode"] = function()
@@ -457,6 +514,25 @@ command.add(nil, {
     doc():set_selection(line + 1, math.huge)
     doc():text_input(indent .. system.get_clipboard():gsub("\r", ""))
   end,
+  
+  ["core:exec-selection"] = function()
+    local text = doc():get_text(doc():get_selection())
+    if doc():has_selection() then
+      text = doc():get_text(doc():get_selection())
+    else
+      local line, col = doc():get_selection()
+      doc():move_to(translate.start_of_line, dv())
+--      doc():move_to(translate.next_word_start, dv())
+      doc():select_to(translate.end_of_line, dv())
+      if doc():has_selection() then
+        text = doc():get_text(doc():get_selection())
+      else
+        return nil  
+      end
+      doc():move_to(function() return line, col end, dv())
+    end
+    assert(loadstring(text))()
+  end,
 
   ["modalediting:copy"] = function()
     if doc():has_selection() then
@@ -467,7 +543,7 @@ command.add(nil, {
     else
       local line, col = doc():get_selection()
       doc():move_to(translate.start_of_line, dv())
-      doc():move_to(translate.next_word_boundary, dv())
+      doc():move_to(translate.next_word_start, dv())
       doc():select_to(translate.end_of_line, dv())
       if doc():has_selection() then
         local text = doc():get_text(doc():get_selection())
@@ -507,14 +583,15 @@ command.add(nil, {
 
   ["modalediting:command-finder"] = function()
     mode = "insert"
-    command.perform("core:command-finder")
+    command.perform("core:find-command")
   end,
+  
 
   ["modalediting:file-finder"] = function()
     mode = "insert"
-    command.perform("core:file-finder")
+    command.perform("core:find-file")
   end,
-
+  
   ["modalediting:open-file"] = function()
     mode = "insert"
     command.perform("core:open-file")
@@ -542,6 +619,20 @@ command.add(nil, {
       doc():move_to(function() return line, col end, dv())
     end
   end,
+  
+  ["modalediting:move-to-next-word-start"] = function()
+    -- I know that's not it, but it'll do for now
+    command.perform("doc:move-to-next-word-end")
+    command.perform("doc:move-to-next-char")
+  end,
+  
+  -- will this do?
+  ["e"] = function()
+    command.perform("modalediting:open-file")
+  end,
+  ["w"] = function()
+    command.perform("doc:save")
+  end,
 })
 
 -- maybe I'll use it?
@@ -566,6 +657,8 @@ keymap.add_direct {
   ["modal+alt+i"] = "root:switch-to-up",
   ["modal+alt+k"] = "root:switch-to-down",
 
+  ["modal+ctrl+h"] = "root:switch-to-left",
+  ["modal+ctrl+l"] = "root:switch-to-right",
   ["modal+ctrl+w"] = "modalediting:close",
   ["modal+ctrl+k"] = "root:switch-to-next-tab",
   ["modal+ctrl+j"] = "root:switch-to-previous-tab",
@@ -591,8 +684,8 @@ keymap.add_direct {
   ["modal+h"] = "doc:move-to-previous-char",
   ["modal+backspace"] = "doc:move-to-previous-char",
   ["modal+l"] = "doc:move-to-next-char",
-  ["modal+w"] = "doc:move-to-next-word-boundary",
-  ["modal+b"] = "doc:move-to-previous-word-boundary",
+  ["modal+w"] = "modalediting:move-to-next-word-start",
+  ["modal+b"] = "doc:move-to-previous-word-start",
   ["modal+e"] = "doc:move-to-next-word-end",
   ["modal+0"] = "doc:move-to-start-of-line",
   ["modal+shift+4"] = "modalediting:end-of-line",
@@ -641,11 +734,18 @@ keymap.add_direct {
   ["modal+ctrl+p"] = { "command:select-previous", "doc:move-to-previous-line" },
   ["modal+ctrl+n"] = { "command:select-next", "doc:move-to-next-line" },
   ["modal+ctrl+m"] = { "command:submit", "doc:newline", "dialog:select" },
+
+  ["modal+alt+x"] = "modalediting:command-finder",
+  ["modal+/"] = "find-replace:find",
 }
+
+
+
 keymap.add_direct {
   ["ctrl+p"] = { "command:select-previous", "doc:move-to-previous-line" },
   ["ctrl+n"] = { "command:select-next", "doc:move-to-next-line" },
   ["ctrl+h"] = "doc:backspace",
   ["ctrl+m"] = { "command:submit", "doc:newline", "dialog:select" },
-  ["ctrl+["] = "modalediting:switch-to-movement-mode",
+  ["ctrl+["] = "modalediting:switch-to-normal-mode",
+  ["alt+x"] = "modalediting:command-finder",
 }
