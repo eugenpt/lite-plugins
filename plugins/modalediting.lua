@@ -853,6 +853,35 @@ wait_modes["'"] = function(stroke)
   end
 end
 
+wait_modes["f"] = function(stroke)
+  if stroke=='<space>' then
+    stroke = ' '
+  end
+  if #stroke > 1 then
+    debug_str = 'find ' .. stroke .. ' in line? really?'
+    
+    return nil
+  end
+
+  local line = nil
+  local col = nil
+  line,col = doc():get_selection()
+  while true do
+    local line2, col2 = doc():position_offset(line, col, 1)
+    local char = doc():get_char(line2, col2)
+    if char==stroke then
+      doc():set_selection(line2,col2)
+      return
+    end
+    if line ~= line2 or col == col2 then
+      debug_str = stroke .. ' not found'
+      return
+    end
+    line, col = line2, col2
+  end    
+  
+end
+
 
 keymap.add_nmap {
   ["s"] = "modalediting:easy-motion",
