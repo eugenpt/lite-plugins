@@ -13,6 +13,7 @@ TODO:
 ! - - that can be tested via existing command interface, I think. 
 - also, what about creating commands on the fly, emacs-style? 
 - MARKS! I mean, that's a freaking killer feature of vim
+- - and now - make marks follow text if lines are deleted
 - registers. I mean. Yeah. 
 - - also - should they really be shared between clipboard and macroses?
 - simpler mappings (f/c/*/%/}/C-o)
@@ -44,6 +45,8 @@ local StatusView = require "core.statusview"
 
 local current_seq = 'aaa'
 local last_stroke = ''
+local num_arg = '' -- like g100g or d5d or 100G
+
 local debug_str = 'test debug str'
 
 local mode = "insert"
@@ -80,41 +83,6 @@ local function get_mode_str()
   return mode == 'insert' and "INSERT" or "NORMAL"
 end
 
--- This can probably be done via getmetatable or sth, but I'm not there yet
-function DocView:get_type()
-  return 'DocView'
-end
-
-function CommandView:get_type()
-  return 'CommandView'
-end
-
--- local SingleLineDoc_new = SingleLineDoc
-
---[[
-local get_items = StatusView.get_items
-function StatusView:get_items()
-  local left, right = get_items(self)
-
-  local t_right = {
-    style.text, self.separator, style.text, '|' , self.separator, current_seq,
-  }
-  
-  local t_left = {
-    style.dim, self.separator, style.accent, get_mode_str()
-  }
-  
-  for _, item in ipairs(t_right) do
-    table.insert(right, item)
-  end
-  
-  for _, item in ipairs(t_left) do
-    table.insert(left, item)
-  end
-
-  return left, right
-end
-]]--
 function StatusView:get_items()
   if getmetatable(core.active_view) == DocView then
     local dv = core.active_view
@@ -395,7 +363,7 @@ end
   
 local old_on_key_pressed = keymap.on_key_pressed
 function keymap.on_key_pressed(k)
-  if dv():get_type()=='CommandView' then
+  if dv():is(CommandView) then
     -- only insert mode in CommandViews
     return old_on_key_pressed(k)
   end
@@ -950,6 +918,7 @@ command.add(is_normal_mode, {
   end,
 })
 
+
 keymap.add_nmap {
   ["s"] = "modalediting:easy-motion",
   ["C-s"] = "doc:save",
@@ -1054,6 +1023,7 @@ keymap.add_nmap {
   ["C-xC-;"] = "doc:toggle-line-comments",
   
   ["viw"] = "doc:select-word",
+  ["M-s"] = "doc:save",
 }
 
 -- some minor tweaks for isnert mode from emacs/vim/..
