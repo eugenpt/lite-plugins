@@ -119,6 +119,7 @@ function StatusView:get_items()
       self.separator,
       dv.doc.crlf and "CRLF" or "LF",
       style.text, self.separator2, last_stroke,
+      self.separator2, '#', num_arg
     }
   end
 
@@ -135,7 +136,17 @@ function StatusView:get_items()
 end
 
 
+-------------------------------------------------------------------------------
 
+
+local function isUpperCase(letter)
+  return letter:upper()==letter and letter:lower()~=letter
+end
+
+local function isNumber(char)
+  local s = '0123456789'
+  return s:find(char) and true or false
+end
 
 -------------------------------------------------------------------------------
 
@@ -146,6 +157,12 @@ end
 local function doc()
   return core.active_view.doc
 end
+
+local function move_to_line(line)
+  doc():move_to(function() return tonumber(num_arg),0 end, dv())
+end
+
+-------------------------------------------------------------------------------
 
 local function append_line_if_last_line(line)
   if line >= #doc().lines then
@@ -361,6 +378,13 @@ local function val2str(v)
   return v and v or 'nil'
 end
   
+local function restart_seq()
+  current_seq = ''
+  -- commands = nil
+  wait_mode = nil
+  num_arg = ''
+end  
+  
 local old_on_key_pressed = keymap.on_key_pressed
 function keymap.on_key_pressed(k)
   if dv():is(CommandView) then
@@ -387,35 +411,39 @@ function keymap.on_key_pressed(k)
       commands = keymap.map[stroke]
     elseif mode == "normal" then
       if last_stroke == '<ESC>' or last_stroke == 'C-g' then
-        current_seq = ''
-        commands = nil
-        wait_mode = nil
-      else
-        current_seq = current_seq .. last_stroke
+        -- hard-code exits
+        restart_seq()
         
-        -- probably gonna do stuff here...
-        
-        commands = keymap.nmap[current_seq]
+        return true
       end
-
+      
       if wait_mode then
         -- execute stuff
         wait_modes[wait_mode](last_stroke)
         
         -- reset
-        current_seq = ''
-        commands = nil
-        wait_mode = nil
-        
+        restart_seq()
         
         return true
       end
       
+      if isNumber(last_stroke) then
+        num_arg = num_arg .. last_stroke
+        
+        return true
+      end
+      current_seq = current_seq .. last_stroke
+
       if wait_modes[current_seq] then
         wait_mode = current_seq
         return true
       end
       
+      
+        
+      -- probably gonna do stuff here...
+        
+      commands = keymap.nmap[current_seq]
       
       if commands then
         -- debug_str = 'nmapped ['..current_seq..']'
@@ -520,15 +548,6 @@ function DocView:draw_line_text(idx, x, y)
   end
 end
 
-local function isUpperCase(letter)
-  return letter:upper()==letter and letter:lower()~=letter
-end
-
-local function isNumber(char)
-  local s = '0123456789'
-  return s:find(char) and true or false
-end
-
 local function is_normal_mode()
   return mode=='normal'
 end
@@ -547,9 +566,6 @@ command.add(is_not_normal_mode, {
     current_seq = ""
   end,
 })
-
-
-
 
 
 
@@ -608,19 +624,30 @@ command.add(nil, {
       system.set_clipboard(text)
       doc():delete_to(0)
     else
-      yanked_whole_lines = true
       local line, col = doc():get_selection()
+      if num_arg == '' then
+        num_arg = 1
+      else
+        num_arg = tonumber(num_arg)
+      end
       doc():move_to(translate.start_of_line, dv())
-      doc():select_to(translate.end_of_line, dv())
+      
+      for j=1,num_arg do
+        doc():select_to(translate.end_of_line, dv())
+        doc():select_to(translate.next_char, dv())
+      end
       if doc():has_selection() then
         local text = doc():get_text(doc():get_selection())
         system.set_clipboard(text)
         doc():delete_to(0)
       end
-      local line1, col1, line2 = doc():get_selection(true)
-      append_line_if_last_line(line2)
-      doc():remove(line1, 1, line2 + 1, 1)
-      doc():set_selection(line1, col1)
+      -- local line1, col1, line2 = doc():get_selection(true)
+      -- append_line_if_last_line(line2)
+      -- doc():remove(line1, 1, line2 + 1, 1)
+      -- doc():set_selection(line1, col1)
+      
+      yanked_whole_lines = true
+      num_arg = ''
     end
     
   end,
@@ -708,7 +735,7 @@ command.add(nil, {
       end
       doc():move_to(function() return line, col end, dv())
     end
-    assert(loadstring(text))()
+    assert(load(text))()
   end,
 
   ["modalediting:copy"] = function()
@@ -803,6 +830,25 @@ command.add(nil, {
     command.perform("doc:move-to-next-char")
   end,
   
+  ["modalediting:move-to-start-of-doc"] = function()
+    if num_arg == '' then
+    command.perform("doc:move-to-start-of-doc")
+    else
+      move_to_line(tonumber(num_arg))
+      num_arg = ''
+    end
+  end,
+  
+  ["modalediting:move-to-end-of-doc"] = function()
+    if num_arg == '' then
+      command.perform("doc:move-to-end-of-doc")
+    else
+      move_to_line(tonumber(num_arg))
+      num_arg = ''
+--      doc():move_to(translate.
+    end
+  end,
+  
   -- will this do?
   ["e"] = function()
     command.perform("modalediting:open-file")
@@ -834,9 +880,7 @@ end
 
 
 wait_modes["m"] = function(stroke)
-  local line = nil
-  local col = nil
-  line,col = doc():get_selection()
+  local line,col = doc():get_selection()
   marks[stroke] = {line, col}
 end
 
@@ -960,8 +1004,8 @@ keymap.add_nmap {
   ["n"] = "find-replace:repeat-find",
   ["N"] = "find-replace:previous-find",
 --  ["g"] = "modalediting:go-to-line",
-  ["gg"] = "doc:move-to-start-of-doc",
-  ["G"] = "doc:move-to-end-of-doc",
+  ["gg"] = "modalediting:move-to-start-of-doc",
+  ["G"] = "modalediting:move-to-end-of-doc",
 
   ["k"] = "doc:move-to-previous-line",
   ["j"] = "doc:move-to-next-line",
