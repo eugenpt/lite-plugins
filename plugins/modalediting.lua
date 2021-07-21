@@ -34,6 +34,7 @@ local core = require "core"
 local command = require "core.command"
 local keymap = require "core.keymap"
 local DocView = require "core.docview"
+local CommandView = require "core.commandview"
 local style = require "core.style"
 local config = require "core.config"
 local common = require "core.common"
@@ -72,6 +73,18 @@ local marks = {}
 local function get_mode_str()
   return mode == 'insert' and "INSERT" or "NORMAL"
 end
+
+-- This can probably be done via getmetatable or sth, but I'm not there yet
+function DocView:get_type()
+  return 'DocView'
+end
+
+function CommandView:get_type()
+  return 'CommandView'
+end
+
+-- local SingleLineDoc_new = SingleLineDoc
+
 --[[
 local get_items = StatusView.get_items
 function StatusView:get_items()
@@ -118,6 +131,7 @@ function StatusView:get_items()
       style.text,
       " ", -- self.separator,
       string.format("% 3d%%", line / #dv.doc.lines * 100),
+      self.separator2,
       current_seq,
       self.separator2,
       style.text, style.font,
@@ -134,13 +148,20 @@ function StatusView:get_items()
     }
   end
 
-  return {}, {
+  return {
+    style.text, 
+    style.font,
+    debug_str,
+  }, {
     style.icon_font, "g",
     style.font, style.dim, self.separator2,
     #core.docs, style.text, " / ",
     #core.project_files, " files"
   }
 end
+
+
+
 
 -------------------------------------------------------------------------------
 
@@ -355,7 +376,15 @@ local function have_comms_starting_with(seq)
   return false
 end
 
+local function val2str(v)
+  return v and v or 'nil'
+end
+  
+local old_on_key_pressed = keymap.on_key_pressed
 function keymap.on_key_pressed(k)
+  if dv():get_type()=='CommandView' then
+    return old_on_key_pressed(k)
+  end
   -- override core function
   -- current_seq = ''
   local mk = modkey_map[k]
@@ -388,14 +417,14 @@ function keymap.on_key_pressed(k)
       end
       
       if commands then
-        debug_str = 'nmapped ['..current_seq..']'
+        -- debug_str = 'nmapped ['..current_seq..']'
         current_seq = ''
       else
         -- look for any command starting with what we have
         if have_comms_starting_with(current_seq) then
           -- it's all fine
         else
-          debug_str = current_seq .. " is undefined"
+          -- debug_str = current_seq .. " is undefined"
           current_seq = ""
         end
       end
@@ -490,12 +519,33 @@ function DocView:draw_line_text(idx, x, y)
   end
 end
 
-command.add(nil, {
+local function isUpperCase(letter)
+  return letter:upper()==letter and letter:lower()~=letter
+end
+
+local function isNumber(char)
+  local s = '0123456789'
+  return s:find(char) and true or false
+end
+
+
+local function is_not_normal_mode()
+  return mode~='normal'
+end
+
+local function is_insert_mode()
+  return mode=='insert'
+end
+
+command.add(is_not_normal_mode, {
   ["modalediting:switch-to-normal-mode"] = function()
     mode = "normal"
     current_seq = ""
   end,
+})
 
+
+command.add(nil, {
   ["modalediting:switch-to-insert-mode"] = function()
     mode = "insert"
     current_seq = ""
@@ -656,7 +706,7 @@ command.add(nil, {
   end,
 
   ["modalediting:find"] = function()
-    mode = "insert"
+    -- mode = "insert"
     command.perform("find-replace:find")
   end,
 
@@ -684,18 +734,18 @@ command.add(nil, {
   end,
 
   ["modalediting:command-finder"] = function()
-    mode = "insert"
+    -- mode = "insert"
     command.perform("core:find-command")
   end,
   
 
   ["modalediting:file-finder"] = function()
-    mode = "insert"
+    -- mode = "insert"
     command.perform("core:find-file")
   end,
   
   ["modalediting:open-file"] = function()
-    mode = "insert"
+    -- mode = "insert"
     command.perform("core:open-file")
   end,
 
@@ -782,8 +832,8 @@ keymap.add_nmap {
   ["C-h"] = "root:switch-to-left",
   ["C-l"] = "root:switch-to-right",
   ["C-w"] = "modalediting:close",
---  ["C-k"] = "root:switch-to-next-tab",
---  ["C-j"] = "root:switch-to-previous-tab",
+  ["C-k"] = "root:switch-to-next-tab",
+  ["C-j"] = "root:switch-to-previous-tab",
   ["A-1"] = "root:switch-to-tab-1",
   ["A-2"] = "root:switch-to-tab-2",
   ["A-3"] = "root:switch-to-tab-3",
@@ -862,14 +912,13 @@ keymap.add_nmap {
   ["C-xC-;"] = "doc:toggle-line-comments",
 }
 
-
 -- some minor tweaks for isnert mode from emacs/vim/..
 keymap.add_direct {
   ["ctrl+p"] = { "command:select-previous", "doc:move-to-previous-line" },
   ["ctrl+n"] = { "command:select-next", "doc:move-to-next-line" },
   ["ctrl+h"] = "doc:backspace",
   ["ctrl+m"] = { "command:submit", "doc:newline", "dialog:select" },
-  ["ctrl+["] = "modalediting:switch-to-normal-mode",
+  ["ctrl+["] = { "command:escape", "modalediting:switch-to-normal-mode", "doc:select-none", "dialog:select-no" }, -- "modalediting:switch-to-normal-mode",
   ["alt+x"] = "modalediting:command-finder",
   ["ctrl+a"] = "doc:move-to-start-of-line",
   ["ctrl+e"] = "doc:move-to-end-of-line",
