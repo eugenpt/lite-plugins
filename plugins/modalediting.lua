@@ -68,6 +68,8 @@ local easy_motion_color_2 = { common.color "#f7c95c" }
 local nmap = {}
 
 local registers = {}
+local yanked_whole_lines = false
+local paste_register = nil
 
 local marks = {}
 
@@ -313,12 +315,19 @@ end
 
 local escape_char_sub = {
   ["<"] = "\\<",   -- for <ESC> and <CR>
-  ["\\"] = "\\\\", -- for the escaping "\" itself
+  ["\\"] = "\\\\", -- for the escaping "\" itself -- it's a good thing I don't need triple escaping..
   ["-"] = "\\-",   -- for "-" in "C/A/M-.." 
   ["escape"] = "<ESC>",
   ["return"] = "<CR>",
   ["keypad enter"] = "<return>",
 } 
+-- should be handy? I mean.. it is already, for f/F
+local un_escape_sub = {
+  ["\\<"] = "<",
+  ["\\\\"] = "\\",
+  ["\\-"] = "-",
+  ["<space>"] = " ",
+}
 local escape_simple_keys = {
  'home','space','up','down','left','right','end','pageup','pagedown','delete','insert','tab','backspace'
 }
@@ -552,6 +561,9 @@ local function isNumber(char)
   return s:find(char) and true or false
 end
 
+local function is_normal_mode()
+  return mode=='normal'
+end
 
 local function is_not_normal_mode()
   return mode~='normal'
@@ -628,6 +640,7 @@ command.add(nil, {
       system.set_clipboard(text)
       doc():delete_to(0)
     else
+      yanked_whole_lines = true
       local line, col = doc():get_selection()
       doc():move_to(translate.start_of_line, dv())
       doc():select_to(translate.end_of_line, dv())
@@ -641,6 +654,7 @@ command.add(nil, {
       doc():remove(line1, 1, line2 + 1, 1)
       doc():set_selection(line1, col1)
     end
+    
   end,
 
   ["modalediting:delete-to-end-of-line"] = function()
@@ -674,6 +688,16 @@ command.add(nil, {
   end,
 
   ["modalediting:delete-char"] = function()
+    local line,col,line2,col2 = doc():get_selection()
+    doc():set_selection(line,col)
+    doc():select_to(translate.next_char, dv())
+    local text = doc():get_text(doc():get_selection())
+    system.set_clipboard(text)
+    yanked_whole_lines=false
+    doc():delete_to(0)
+    doc():set_selection(line,col,line2,col2)
+    return nil
+  end,--[[
     if doc():has_selection() then
       local text = doc():get_text(doc():get_selection())
       system.set_clipboard(text)
@@ -686,14 +710,18 @@ command.add(nil, {
         doc():delete_to(0)
       end
     end
-  end,
+  end,]]--
 
   ["modalediting:paste"] = function()
     local line, col = doc():get_selection()
-    local indent = doc().lines[line]:match("^[\t ]*")
-    doc():insert(line, math.huge, "\n")
-    doc():set_selection(line + 1, math.huge)
-    doc():text_input(indent .. system.get_clipboard():gsub("\r", ""))
+    if yanked_whole_lines then
+      local indent = doc().lines[line]:match("^[\t ]*")
+      doc():insert(line, math.huge, "\n")
+      doc():set_selection(line + 1, math.huge)
+      doc():text_input(indent)
+    end
+    doc():text_input(system.get_clipboard():gsub("\r", ""))
+    paste_register=nil
   end,
   
   ["core:exec-selection"] = function()
@@ -853,21 +881,46 @@ wait_modes["'"] = function(stroke)
   end
 end
 
-wait_modes["f"] = function(stroke)
-  if stroke=='<space>' then
-    stroke = ' '
-  end
-  if #stroke > 1 then
-    debug_str = 'find ' .. stroke .. ' in line? really?'
-    
+local function stroke_to_letter(stroke)
+   -- un-escape some of the strokes
+   stroke = un_escape_sub[stroke] and un_escape_sub[stroke] or stroke
+   -- no modifiers and such => 1 letter only
+   if #stroke>1 then
+     return nil
+   end
+   return stroke
+end
+
+wait_modes["r"] = function(_stroke)
+  local stroke = stroke_to_letter(_stroke)
+  
+  if stroke == nil then
+    debug_str = 'replace with ' .. _stroke .. ' ? really?'
     return nil
   end
+  
+  local line,col,line2,col2 = doc():get_selection()
+  command.perform("modalediting:delete-char")
+  doc():text_input(stroke)
+end
+
+local last_line_find = nil
+
+local function find_in_line(forward, _stroke)
+  local stroke = stroke_to_letter(_stroke)
+  
+  if stroke == nil then
+    stroke = 'find ' .. stroke .. ' in line? really?'
+    return nil
+  end
+  
+  last_line_find = { ["forward"] = forward, ["stroke"]=stroke }
 
   local line = nil
   local col = nil
   line,col = doc():get_selection()
   while true do
-    local line2, col2 = doc():position_offset(line, col, 1)
+    local line2, col2 = doc():position_offset(line, col, forward and 1 or -1)
     local char = doc():get_char(line2, col2)
     if char==stroke then
       doc():set_selection(line2,col2)
@@ -879,15 +932,30 @@ wait_modes["f"] = function(stroke)
     end
     line, col = line2, col2
   end    
-  
 end
 
+wait_modes["f"] = function(stroke)
+  find_in_line(true, stroke)
+end
+
+wait_modes["F"] = function(stroke)
+  find_in_line(false, stroke)
+end
+
+command.add(is_normal_mode, {
+  ["modalediting:repeat-last-find-in-line"] = function()
+    if last_line_find then
+      find_in_line(last_line_find['forward'], last_line_find['stroke'])
+    end
+  end,
+})
 
 keymap.add_nmap {
   ["s"] = "modalediting:easy-motion",
   ["C-s"] = "doc:save",
   ["C-P"] = "modalediting:command-finder",
   [":"] = "modalediting:command-finder",
+  [";"] = "modalediting:repeat-last-find-in-line",
 --  ["C-p"] = "modalediting:file-finder",
   ["C-o"] = "modalediting:open-file",
 --  ["C-n"] = "modalediting:new-doc",
@@ -984,6 +1052,8 @@ keymap.add_nmap {
   ["/"] = "modalediting:find",
   -- 
   ["C-xC-;"] = "doc:toggle-line-comments",
+  
+  ["viw"] = "doc:select-word",
 }
 
 -- some minor tweaks for isnert mode from emacs/vim/..
