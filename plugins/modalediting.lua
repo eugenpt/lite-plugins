@@ -14,6 +14,7 @@ TODO:
 - also, what about creating commands on the fly, emacs-style? 
 - MARKS! I mean, that's a freaking killer feature of vim
 - - and now - make marks follow text if lines are deleted
+- - also make global marks
 - registers. I mean. Yeah. 
 - - also - should they really be shared between clipboard and macroses?
 - simpler mappings (f/c/*/%/}/C-o)
@@ -1072,11 +1073,11 @@ keymap.add_nmap {
 
 -- some minor tweaks for isnert mode from emacs/vim/..
 keymap.add_direct {
-  ["ctrl+p"] = { "command:select-previous", "doc:move-to-previous-line" },
-  ["ctrl+n"] = { "command:select-next", "doc:move-to-next-line" },
+  ["ctrl+p"] = { "autocomplete:previous", "command:select-previous", "doc:move-to-previous-line" },
+  ["ctrl+n"] = { "autocomplete:next", "command:select-next", "doc:move-to-next-line" },
   ["ctrl+h"] = "doc:backspace",
-  ["ctrl+m"] = { "command:submit", "doc:newline", "dialog:select" },
-  ["ctrl+["] = { "command:escape", "modalediting:switch-to-normal-mode", "doc:select-none", "dialog:select-no" }, -- "modalediting:switch-to-normal-mode",
+  ["ctrl+m"] = { "autocomplete:complete", "command:submit", "doc:newline", "dialog:select" },
+  ["ctrl+["] = { "autocomplete:cancel", "command:escape", "modalediting:switch-to-normal-mode", "doc:select-none", "dialog:select-no" }, -- "modalediting:switch-to-normal-mode",
   ["alt+x"] = "modalediting:command-finder",
   ["ctrl+a"] = "doc:move-to-start-of-line",
   ["ctrl+e"] = "doc:move-to-end-of-line",
