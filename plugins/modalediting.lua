@@ -345,6 +345,16 @@ local function key_to_stroke(k)
   return stroke .. k
 end
 
+local function have_comms_starting_with(seq)
+  -- crude but it'll do for now
+  for jseq,_ in pairs(keymap.nmap) do
+    if #jseq>#seq and jseq:sub(1,#seq)==seq then
+      return true
+    end
+  end
+  return false
+end
+
 function keymap.on_key_pressed(k)
   -- override core function
   -- current_seq = ''
@@ -381,8 +391,13 @@ function keymap.on_key_pressed(k)
         debug_str = 'nmapped ['..current_seq..']'
         current_seq = ''
       else
-        debug_str = 'keymapped ['..current_seq..']'
-        commands = keymap.map["modal+" .. stroke]
+        -- look for any command starting with what we have
+        if have_comms_starting_with(current_seq) then
+          -- it's all fine
+        else
+          debug_str = current_seq .. " is undefined"
+          current_seq = ""
+        end
       end
     end
     -- easy-motion
@@ -727,7 +742,9 @@ local macos = rawget(_G, "MACOS_RESOURCES")
 
 
 keymap.nmap = {}
-keymap.reverse_nmap = {}
+keymap.nmap_index = {} -- for sequence-based analysis
+keymap.reverse_nmap = {} -- not really sure where to go with this..
+
 function keymap.add_nmap(map)
   for stroke, commands in pairs(map) do
     if type(commands) == "string" then
@@ -821,14 +838,14 @@ keymap.add_nmap {
   ["<tab>"] = "modalediting:indent",
   ["S-<tab>"] = "doc:unindent",
   [">"] = "modalediting:indent",
-  ["<"] = "doc:unindent",
+  ["\\<"] = "doc:unindent",
   ["p"] = "modalediting:paste",
   ["y"] = "modalediting:copy",
   ["dd"] = "modalediting:delete-line",
   ["D"] = "modalediting:delete-to-end-of-line",
 --  ["q"] = "modalediting:delete-word",
   ["x"] = "modalediting:delete-char",
-  ["C-\\"] = "treeview:toggle",
+  ["C-\\\\"] = "treeview:toggle", -- yeah, single \ turns into \\\\ , thats crazy.
 
   ["<left>"] = { "doc:move-to-previous-char", "dialog:previous-entry" },
   ["<right>"] = { "doc:move-to-next-char", "dialog:next-entry"},
