@@ -42,6 +42,7 @@ local translate = require "core.doc.translate"
 local StatusView = require "core.statusview"
 
 local current_seq = 'aaa'
+local last_stroke = ''
 
 local mode = "insert"
 local last_mode = "insert"
@@ -58,23 +59,19 @@ local easy_motion_color_2 = { common.color "#f7c95c" }
 -- additions to status
 -------------------------------------------------------------------------------
 
+local nmap = {}
+
+
 local function get_mode_str()
   return mode == 'insert' and "INSERT" or "NORMAL"
 end
-
+--[[
 local get_items = StatusView.get_items
 function StatusView:get_items()
   local left, right = get_items(self)
 
   local t_right = {
     style.text, self.separator, style.text, '|' , self.separator, current_seq,
-    --[[(git.inserts ~= 0 or git.deletes ~= 0) and style.accent or style.text,
-    git.branch,
-    style.dim, "  ",
-    git.inserts ~= 0 and style.accent or style.text, "+", git.inserts,
-    style.dim, " / ",
-    git.deletes ~= 0 and style.accent or style.text, "-", git.deletes,
-    --]]
   }
   
   local t_left = {
@@ -90,6 +87,49 @@ function StatusView:get_items()
   end
 
   return left, right
+end
+]]--
+function StatusView:get_items()
+  if getmetatable(core.active_view) == DocView then
+    local dv = core.active_view
+    local line, col = dv.doc:get_selection()
+    local dirty = dv.doc:is_dirty()
+    local indent = dv.doc.indent_info
+    local indent_label = (indent and indent.type == "hard") and "tabs: " or "spaces: "
+    local indent_size = indent and tostring(indent.size) .. (indent.confirmed and "" or "*") or "unknown" 
+
+    return {
+      dirty and style.accent or style.text, style.icon_font, "f",
+      style.code_font, style.text, self.separator2,
+      style.accent, get_mode_str(), style.text, self.separator2,
+      style.dim, style.font, style.text,
+      dv.doc.filename and style.text or style.dim, dv.doc:get_name(),
+      style.text, style.code_font,
+      self.separator2,
+      "L", string.format('% 4d',line), " :",
+      col > config.line_limit and style.accent or style.text, string.format('% 3d',col), " C",
+      style.text,
+      " ", -- self.separator,
+      string.format("% 3d%%", line / #dv.doc.lines * 100),
+      current_seq,
+    }, {
+      style.text, indent_label, indent_size,
+      style.dim, self.separator2, style.text,
+      style.icon_font, "g",
+      style.font, style.dim, self.separator2, style.text,
+      #dv.doc.lines, " lines",
+      self.separator,
+      dv.doc.crlf and "CRLF" or "LF",
+      style.text, self.separator2, last_stroke,
+    }
+  end
+
+  return {}, {
+    style.icon_font, "g",
+    style.font, style.dim, self.separator2,
+    #core.docs, style.text, " / ",
+    #core.project_files, " files"
+  }
 end
 
 -------------------------------------------------------------------------------
@@ -182,6 +222,8 @@ end
 local modkey_map = {
   ["left command"]   = "cmd",
   ["right command"]  = "cmd",
+  ["left windows"]   = "cmd",
+  ["right windows"]  = "cmd",
   ["left ctrl"]   = "ctrl",
   ["right ctrl"]  = "ctrl",
   ["left shift"]  = "shift",
@@ -228,6 +270,20 @@ local shift_keys = {
   ["%."] = ">",
   ["/"] = "?",
 }
+-- I should probably add sth for the arrows,..
+--  but I won't
+local escape_char_sub = {
+  ["<"] = "\\<",   -- for <ESC> and <CR>
+  ["\\"] = "\\\\", -- for the escaping "\" itself
+  ["-"] = "\\-",   -- for "-" in "C/A/M-.." 
+  ["escape"] = "<ESC>",
+  ["return"] = "<CR>",
+  ["space"] = "<space>",
+  ["up"] = "<up>",
+  ["down"] = "<down>",
+  ["left"] = "<left>",
+  ["right"] = "<right>",
+} 
 -- emulate shift on key ..
 -- -- I probably could make it a single [ ], but damn that's a big list
 local function shift(k)
@@ -238,20 +294,29 @@ local function shift(k)
   return r
 end
 
-current_seq = shift("asff123456")
+local function escape_stroke(k)
+  local r = escape_char_sub[k]
+  if r then
+    return r
+  end
+  return k
+end
+
+current_seq = shift("a3-  ---")
 
 local function ep_key_to_stroke(k)
   local stroke = ""
-  
+  -- prep modifiers
   for _, mk in ipairs({'ctrl','alt','altgr','cmd'}) do
     if keymap.modkeys[mk] then
       stroke = stroke .. modkeys_sh[mk] .. '-'
     end
   end
+  -- prep shift if pressed
   if keymap.modkeys["shift"] then
-    stroke = stroke .. shift(k)
+    stroke = stroke .. escape_stroke(shift(k))
   else 
-    stroke = stroke .. k
+    stroke = stroke .. escape_stroke(k)
   end
   return stroke
 end
@@ -268,13 +333,10 @@ end
 
 function keymap.on_key_pressed(k)
   -- override core function
-  current_seq = ''
-  for tj = 1,4 do
-    current_seq = current_seq .. ''
-  end
+  -- current_seq = ''
   local mk = modkey_map[k]
   if mk then
-    current_seq = k
+    last_stroke = k
     keymap.modkeys[mk] = true
     -- work-around for windows where `altgr` is treated as `ctrl+alt`
     if mk == "altgr" then
@@ -282,26 +344,25 @@ function keymap.on_key_pressed(k)
     end
   else
     -- first - debug helper line of current stroke
-    current_seq = ''
-    for _, mk in ipairs(modkeys) do
-      if keymap.modkeys[mk] then
-        current_seq = current_seq .. modkeys_sh[mk]
-      else
-        current_seq = current_seq .. '_'
-      end
-    end
-    current_seq = current_seq .. k
-    
-    current_seq = ep_key_to_stroke(k)
+    last_stroke = ep_key_to_stroke(k)
+    -- 
     
     local stroke = key_to_stroke(k)
     local commands
     if mode == "insert" then
       commands = keymap.map[stroke]
     elseif mode == "normal" then
+      if last_stroke == '<ESC>' or last_stroke == 'C-g' then
+        current_seq = ''
+      else
+        current_seq = current_seq .. last_stroke
+        
+        -- probably gonna do stuff here...
+      end
+
       commands = keymap.map["modal+" .. stroke]
     end
-
+    -- easy-motion
     if in_easy_motion then
       if first_easy_motion_key_pressed then
         for _, word in ipairs(separated_words) do
@@ -393,10 +454,12 @@ end
 command.add(nil, {
   ["modalediting:switch-to-normal-mode"] = function()
     mode = "normal"
+    current_seq = ""
   end,
 
   ["modalediting:switch-to-insert-mode"] = function()
     mode = "insert"
+    current_seq = ""
   end,
 
   ["modalediting:easy-motion"] = activate_easy_motion,
@@ -638,6 +701,12 @@ command.add(nil, {
 -- maybe I'll use it?
 local macos = rawget(_G, "MACOS_RESOURCES")
 
+
+
+
+
+
+
 keymap.add_direct {
   ["modal+s"] = "modalediting:easy-motion",
   ["modal+ctrl+s"] = "doc:save",
@@ -748,4 +817,7 @@ keymap.add_direct {
   ["ctrl+m"] = { "command:submit", "doc:newline", "dialog:select" },
   ["ctrl+["] = "modalediting:switch-to-normal-mode",
   ["alt+x"] = "modalediting:command-finder",
+  ["ctrl+a"] = "doc:move-to-start-of-line",
+  ["ctrl+e"] = "doc:move-to-end-of-line",
+  ["ctrl+w"] = "doc:delete-to-previous-word-start",
 }
