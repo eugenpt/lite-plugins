@@ -43,6 +43,7 @@ local StatusView = require "core.statusview"
 
 local current_seq = 'aaa'
 local last_stroke = ''
+local debug_str = 'test debug str'
 
 local mode = "insert"
 local last_mode = "insert"
@@ -60,6 +61,12 @@ local easy_motion_color_2 = { common.color "#f7c95c" }
 -------------------------------------------------------------------------------
 
 local nmap = {}
+
+local registers = {}
+
+local marks = {}
+
+
 
 
 local function get_mode_str()
@@ -112,6 +119,9 @@ function StatusView:get_items()
       " ", -- self.separator,
       string.format("% 3d%%", line / #dv.doc.lines * 100),
       current_seq,
+      self.separator2,
+      style.text, style.font,
+      debug_str,
     }, {
       style.text, indent_label, indent_size,
       style.dim, self.separator2, style.text,
@@ -253,7 +263,7 @@ local shift_keys = {
   ["2"] = "@",
   ["3"] = "#",
   ["4"] = "$",
-  ["5"] = "%%",
+  ["5"] = "%",
   ["6"] = "^",
   ["7"] = "&",
   ["8"] = "*",
@@ -261,37 +271,38 @@ local shift_keys = {
   ["0"] = ")",
   ["-"] = "_",
   ["="] = "+",
-  ["%["] = "{",
-  ["%]"] = "}",
+  ["["] = "{",
+  ["]"] = "}",
   [";"] = ":",
   ["'"] = "\"",
   ["\\"] = "|",
   [","] = "<",
-  ["%."] = ">",
+  ["."] = ">",
   ["/"] = "?",
 }
--- I should probably add sth for the arrows,..
---  but I won't
+-- also add letters
+local letterstr = "qwertyuioopasdfghjklzxcvbnm"
+for i=1, #letterstr do
+  shift_keys[letterstr:sub(i,i)] = letterstr:sub(i,i):upper()
+end
+
 local escape_char_sub = {
   ["<"] = "\\<",   -- for <ESC> and <CR>
   ["\\"] = "\\\\", -- for the escaping "\" itself
   ["-"] = "\\-",   -- for "-" in "C/A/M-.." 
   ["escape"] = "<ESC>",
   ["return"] = "<CR>",
-  ["space"] = "<space>",
-  ["up"] = "<up>",
-  ["down"] = "<down>",
-  ["left"] = "<left>",
-  ["right"] = "<right>",
+  ["keypad enter"] = "<return>",
 } 
--- emulate shift on key ..
--- -- I probably could make it a single [ ], but damn that's a big list
-local function shift(k)
-  local r = string.upper(k)
-  for src,sub in pairs(shift_keys) do
-    r = r:gsub(src,sub)
-  end
-  return r
+local escape_simple_keys = {
+ 'home','space','up','down','left','right','end','pageup','pagedown','delete','insert','tab','backspace'
+}
+-- add Fs
+for i = 1, 64 do
+  table.insert(escape_simple_keys, 'f' .. i)
+end
+for _,str in ipairs(escape_simple_keys) do
+  escape_char_sub[str] = "<" .. str .. ">"
 end
 
 local function escape_stroke(k)
@@ -301,8 +312,6 @@ local function escape_stroke(k)
   end
   return k
 end
-
-current_seq = shift("a3-  ---")
 
 local function ep_key_to_stroke(k)
   local stroke = ""
@@ -314,7 +323,12 @@ local function ep_key_to_stroke(k)
   end
   -- prep shift if pressed
   if keymap.modkeys["shift"] then
-    stroke = stroke .. escape_stroke(shift(k))
+    if shift_keys[k] then
+      stroke = stroke .. escape_stroke(shift_keys[k])
+    else
+      -- add Shift as S-
+      stroke = stroke .. 'S-' .. escape_stroke(k)
+    end
   else 
     stroke = stroke .. escape_stroke(k)
   end
@@ -354,13 +368,22 @@ function keymap.on_key_pressed(k)
     elseif mode == "normal" then
       if last_stroke == '<ESC>' or last_stroke == 'C-g' then
         current_seq = ''
+        commands = nil
       else
         current_seq = current_seq .. last_stroke
         
         -- probably gonna do stuff here...
+        
+        commands = keymap.nmap[current_seq]
       end
-
-      commands = keymap.map["modal+" .. stroke]
+      
+      if commands then
+        debug_str = 'nmapped ['..current_seq..']'
+        current_seq = ''
+      else
+        debug_str = 'keymapped ['..current_seq..']'
+        commands = keymap.map["modal+" .. stroke]
+      end
     end
     -- easy-motion
     if in_easy_motion then
@@ -380,6 +403,7 @@ function keymap.on_key_pressed(k)
       end
     else
       if commands then
+        current_seq = ""
         for _, cmd in ipairs(commands) do
           local performed = command.perform(cmd)
           if performed then break end
@@ -702,114 +726,127 @@ command.add(nil, {
 local macos = rawget(_G, "MACOS_RESOURCES")
 
 
+keymap.nmap = {}
+keymap.reverse_nmap = {}
+function keymap.add_nmap(map)
+  for stroke, commands in pairs(map) do
+    if type(commands) == "string" then
+      commands = { commands }
+    end
+    keymap.nmap[stroke] = commands
+    for _, cmd in ipairs(commands) do
+      keymap.reverse_nmap[cmd] = stroke
+    end
+  end
+end
 
 
 
+keymap.add_nmap {
+  ["s"] = "modalediting:easy-motion",
+  ["C-s"] = "doc:save",
+  ["C-P"] = "modalediting:command-finder",
+  [":"] = "modalediting:command-finder",
+--  ["C-p"] = "modalediting:file-finder",
+  ["C-o"] = "modalediting:open-file",
+--  ["C-n"] = "modalediting:new-doc",
+  ["<CR>"] = { "command:select-next", "doc:move-to-next-line" },
+  ["A-<CR>"] = "core:toggle-fullscreen",
 
+  ["A-J"] = "root:split-left",
+  ["A-L"] = "root:split-right",
+  ["A-I"] = "root:split-up",
+  ["A-K"] = "root:split-down",
+  ["A-j"] = "root:switch-to-left",
+  ["A-l"] = "root:switch-to-right",
+  ["A-i"] = "root:switch-to-up",
+  ["A-k"] = "root:switch-to-down",
 
-keymap.add_direct {
-  ["modal+s"] = "modalediting:easy-motion",
-  ["modal+ctrl+s"] = "doc:save",
-  ["modal+ctrl+shift+p"] = "modalediting:command-finder",
-  ["modal+shift+;"] = "modalediting:command-finder",
---  ["modal+ctrl+p"] = "modalediting:file-finder",
-  ["modal+ctrl+o"] = "modalediting:open-file",
---  ["modal+ctrl+n"] = "modalediting:new-doc",
-  ["modal+alt+return"] = "core:toggle-fullscreen",
+  ["C-h"] = "root:switch-to-left",
+  ["C-l"] = "root:switch-to-right",
+  ["C-w"] = "modalediting:close",
+--  ["C-k"] = "root:switch-to-next-tab",
+--  ["C-j"] = "root:switch-to-previous-tab",
+  ["A-1"] = "root:switch-to-tab-1",
+  ["A-2"] = "root:switch-to-tab-2",
+  ["A-3"] = "root:switch-to-tab-3",
+  ["A-4"] = "root:switch-to-tab-4",
+  ["A-5"] = "root:switch-to-tab-5",
+  ["A-6"] = "root:switch-to-tab-6",
+  ["A-7"] = "root:switch-to-tab-7",
+  ["A-8"] = "root:switch-to-tab-8",
+  ["A-9"] = "root:switch-to-tab-9",
 
-  ["modal+alt+shift+j"] = "root:split-left",
-  ["modal+alt+shift+l"] = "root:split-right",
-  ["modal+alt+shift+i"] = "root:split-up",
-  ["modal+alt+shift+k"] = "root:split-down",
-  ["modal+alt+j"] = "root:switch-to-left",
-  ["modal+alt+l"] = "root:switch-to-right",
-  ["modal+alt+i"] = "root:switch-to-up",
-  ["modal+alt+k"] = "root:switch-to-down",
+  ["C-f"] = "modalediting:find",
+  ["r"] = "modalediting:replace",
+  ["n"] = "find-replace:repeat-find",
+  ["N"] = "find-replace:previous-find",
+--  ["g"] = "modalediting:go-to-line",
+  ["gg"] = "doc:move-to-start-of-doc",
+  ["G"] = "doc:move-to-end-of-doc",
 
-  ["modal+ctrl+h"] = "root:switch-to-left",
-  ["modal+ctrl+l"] = "root:switch-to-right",
-  ["modal+ctrl+w"] = "modalediting:close",
-  ["modal+ctrl+k"] = "root:switch-to-next-tab",
-  ["modal+ctrl+j"] = "root:switch-to-previous-tab",
-  ["modal+alt+1"] = "root:switch-to-tab-1",
-  ["modal+alt+2"] = "root:switch-to-tab-2",
-  ["modal+alt+3"] = "root:switch-to-tab-3",
-  ["modal+alt+4"] = "root:switch-to-tab-4",
-  ["modal+alt+5"] = "root:switch-to-tab-5",
-  ["modal+alt+6"] = "root:switch-to-tab-6",
-  ["modal+alt+7"] = "root:switch-to-tab-7",
-  ["modal+alt+8"] = "root:switch-to-tab-8",
-  ["modal+alt+9"] = "root:switch-to-tab-9",
+  ["k"] = "doc:move-to-previous-line",
+  ["j"] = "doc:move-to-next-line",
+  ["h"] = "doc:move-to-previous-char",
+  ["<backspace>"] = "doc:move-to-previous-char",
+  ["l"] = "doc:move-to-next-char",
+  ["w"] = "modalediting:move-to-next-word-start",
+  ["b"] = "doc:move-to-previous-word-start",
+  ["e"] = "doc:move-to-next-word-end",
+  ["0"] = "doc:move-to-start-of-line",
+  ["$"] = "modalediting:end-of-line",
+  ["{"] = "doc:move-to-previous-start-of-block",
+  ["}"] = "doc:move-to-next-start-of-block",
+  ["C-u"] = "doc:move-to-previous-page",
+  ["C-d"] = "doc:move-to-next-page",
+  ["K"] = "doc:select-to-previous-line",
+  ["J"] = "doc:select-to-next-line",
+  ["H"] = "doc:select-to-previous-char",
+  ["S-<backspace>"] = "doc:select-to-previous-char",
+  ["L"] = "doc:select-to-next-char",
+  ["W"] = "doc:select-to-next-word-boundary",
+  ["B"] = "doc:select-to-previous-word-boundary",
+  [")"] = "doc:select-to-start-of-line",
 
-  ["modal+ctrl+f"] = "modalediting:find",
-  ["modal+r"] = "modalediting:replace",
-  ["modal+n"] = "find-replace:repeat-find",
-  ["modal+shift+n"] = "find-replace:previous-find",
-  ["modal+g"] = "modalediting:go-to-line",
-  ["modal+shift+g"] = "doc:move-to-end-of-doc",
+  ["i"] = "modalediting:switch-to-insert-mode",
+  ["I"] = "modalediting:insert-at-start-of-line",
+  ["a"] = "modalediting:insert-at-next-char",
+  ["A"] = "modalediting:insert-at-end-of-line",
+  ["o"] = "modalediting:insert-on-newline-below",
+  ["O"] = "modalediting:insert-on-newline-above",
 
-  ["modal+k"] = "doc:move-to-previous-line",
-  ["modal+j"] = "doc:move-to-next-line",
-  ["modal+h"] = "doc:move-to-previous-char",
-  ["modal+backspace"] = "doc:move-to-previous-char",
-  ["modal+l"] = "doc:move-to-next-char",
-  ["modal+w"] = "modalediting:move-to-next-word-start",
-  ["modal+b"] = "doc:move-to-previous-word-start",
-  ["modal+e"] = "doc:move-to-next-word-end",
-  ["modal+0"] = "doc:move-to-start-of-line",
-  ["modal+shift+4"] = "modalediting:end-of-line",
-  ["modal+["] = "doc:move-to-previous-start-of-block",
-  ["modal+]"] = "doc:move-to-next-start-of-block",
-  ["modal+ctrl+u"] = "doc:move-to-previous-page",
-  ["modal+ctrl+d"] = "doc:move-to-next-page",
-  ["modal+shift+k"] = "doc:select-to-previous-line",
-  ["modal+shift+j"] = "doc:select-to-next-line",
-  ["modal+shift+h"] = "doc:select-to-previous-char",
-  ["modal+shift+backspace"] = "doc:select-to-previous-char",
-  ["modal+shift+l"] = "doc:select-to-next-char",
-  ["modal+shift+w"] = "doc:select-to-next-word-boundary",
-  ["modal+shift+b"] = "doc:select-to-previous-word-boundary",
-  ["modal+shift+0"] = "doc:select-to-start-of-line",
-  ["modal+shift+["] = "doc:select-to-previous-start-of-block",
-  ["modal+shift+]"] = "doc:select-to-next-start-of-block",
+  ["J"] = "doc:join-lines",
+  ["u"] = "doc:undo",
+  ["C-r"] = "doc:redo",
+  ["<tab>"] = "modalediting:indent",
+  ["S-<tab>"] = "doc:unindent",
+  [">"] = "modalediting:indent",
+  ["<"] = "doc:unindent",
+  ["p"] = "modalediting:paste",
+  ["y"] = "modalediting:copy",
+  ["dd"] = "modalediting:delete-line",
+  ["D"] = "modalediting:delete-to-end-of-line",
+--  ["q"] = "modalediting:delete-word",
+  ["x"] = "modalediting:delete-char",
+  ["C-\\"] = "treeview:toggle",
 
-  ["modal+i"] = "modalediting:switch-to-insert-mode",
-  ["modal+shift+i"] = "modalediting:insert-at-start-of-line",
-  ["modal+a"] = "modalediting:insert-at-next-char",
-  ["modal+shift+a"] = "modalediting:insert-at-end-of-line",
-  ["modal+o"] = "modalediting:insert-on-newline-below",
-  ["modal+shift+o"] = "modalediting:insert-on-newline-above",
+  ["<left>"] = { "doc:move-to-previous-char", "dialog:previous-entry" },
+  ["<right>"] = { "doc:move-to-next-char", "dialog:next-entry"},
+  ["<up>"] = { "command:select-previous", "doc:move-to-previous-line" },
+  ["<down>"] = { "command:select-next", "doc:move-to-next-line" },
 
-  ["modal+shift+j"] = "doc:join-lines",
-  ["modal+u"] = "doc:undo",
-  ["modal+ctrl+r"] = "doc:redo",
-  ["modal+tab"] = "modalediting:indent",
-  ["modal+shift+tab"] = "doc:unindent",
-  ["modal+shift+."] = "modalediting:indent",
-  ["modal+shift+,"] = "doc:unindent",
-  ["modal+p"] = "modalediting:paste",
-  ["modal+y"] = "modalediting:copy",
-  ["modal+d"] = "modalediting:delete-line",
-  ["modal+shift+d"] = "modalediting:delete-to-end-of-line",
-  ["modal+q"] = "modalediting:delete-word",
-  ["modal+x"] = "modalediting:delete-char",
-  ["modal+ctrl+\\"] = "treeview:toggle",
+  ["C-p"] = { "command:select-previous", "doc:move-to-previous-line" },
+  ["C-n"] = { "command:select-next", "doc:move-to-next-line" },
+  ["C-m"] = { "command:submit", "doc:newline", "dialog:select" },
 
-  ["modal+left"] = { "doc:move-to-previous-char", "dialog:previous-entry" },
-  ["modal+right"] = { "doc:move-to-next-char", "dialog:next-entry"},
-  ["modal+up"] = { "command:select-previous", "doc:move-to-previous-line" },
-  ["modal+down"] = { "command:select-next", "doc:move-to-next-line" },
-
-  ["modal+ctrl+p"] = { "command:select-previous", "doc:move-to-previous-line" },
-  ["modal+ctrl+n"] = { "command:select-next", "doc:move-to-next-line" },
-  ["modal+ctrl+m"] = { "command:submit", "doc:newline", "dialog:select" },
-
-  ["modal+alt+x"] = "modalediting:command-finder",
-  ["modal+/"] = "find-replace:find",
+  ["A-x"] = "modalediting:command-finder",
+  ["/"] = "modalediting:find",
+  -- 
+  ["C-xC-;"] = "doc:toggle-line-comments",
 }
 
 
-
+-- some minor tweaks for isnert mode from emacs/vim/..
 keymap.add_direct {
   ["ctrl+p"] = { "command:select-previous", "doc:move-to-previous-line" },
   ["ctrl+n"] = { "command:select-next", "doc:move-to-next-line" },
@@ -821,3 +858,5 @@ keymap.add_direct {
   ["ctrl+e"] = "doc:move-to-end-of-line",
   ["ctrl+w"] = "doc:delete-to-previous-word-start",
 }
+
+
