@@ -48,6 +48,10 @@ local debug_str = 'test debug str'
 
 local mode = "insert"
 local last_mode = "insert"
+
+-- for waiting for symbol modes (m,r,f,F,'/`,..)
+local wait_mode = nil
+local wait_modes = {}
 local in_easy_motion = false
 local first_easy_motion_key_pressed = false
 local first_key = ""
@@ -383,10 +387,10 @@ end
 local old_on_key_pressed = keymap.on_key_pressed
 function keymap.on_key_pressed(k)
   if dv():get_type()=='CommandView' then
+    -- only insert mode in CommandViews
     return old_on_key_pressed(k)
   end
   -- override core function
-  -- current_seq = ''
   local mk = modkey_map[k]
   if mk then
     last_stroke = k
@@ -408,6 +412,7 @@ function keymap.on_key_pressed(k)
       if last_stroke == '<ESC>' or last_stroke == 'C-g' then
         current_seq = ''
         commands = nil
+        wait_mode = nil
       else
         current_seq = current_seq .. last_stroke
         
@@ -415,6 +420,25 @@ function keymap.on_key_pressed(k)
         
         commands = keymap.nmap[current_seq]
       end
+
+      if wait_mode then
+        -- execute stuff
+        wait_modes[wait_mode](last_stroke)
+        
+        -- reset
+        current_seq = ''
+        commands = nil
+        wait_mode = nil
+        
+        
+        return true
+      end
+      
+      if wait_modes[current_seq] then
+        wait_mode = current_seq
+        return true
+      end
+      
       
       if commands then
         -- debug_str = 'nmapped ['..current_seq..']'
@@ -543,6 +567,11 @@ command.add(is_not_normal_mode, {
     current_seq = ""
   end,
 })
+
+
+
+
+
 
 
 command.add(nil, {
@@ -771,7 +800,7 @@ command.add(nil, {
       doc():move_to(function() return line, col end, dv())
     end
   end,
-  
+
   ["modalediting:move-to-next-word-start"] = function()
     -- I know that's not it, but it'll do for now
     command.perform("doc:move-to-next-word-end")
@@ -808,6 +837,22 @@ function keymap.add_nmap(map)
 end
 
 
+wait_modes["m"] = function(stroke)
+  local line = nil
+  local col = nil
+  line,col = doc():get_selection()
+  marks[stroke] = {line, col}
+end
+
+wait_modes["'"] = function(stroke)
+  local r = marks[stroke]
+  if r then
+    doc():set_selection(r[1],r[2])
+  else
+    debug_str = 'unknown mark ' .. stroke
+  end
+end
+
 
 keymap.add_nmap {
   ["s"] = "modalediting:easy-motion",
@@ -831,7 +876,7 @@ keymap.add_nmap {
 
   ["C-h"] = "root:switch-to-left",
   ["C-l"] = "root:switch-to-right",
-  ["C-w"] = "modalediting:close",
+  -- ["C-w"] = "modalediting:close",
   ["C-k"] = "root:switch-to-next-tab",
   ["C-j"] = "root:switch-to-previous-tab",
   ["A-1"] = "root:switch-to-tab-1",
