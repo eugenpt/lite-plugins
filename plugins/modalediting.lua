@@ -428,7 +428,8 @@ function keymap.on_key_pressed(k)
         return true
       end
       
-      if isNumber(last_stroke) then
+      if isNumber(last_stroke) 
+        and not(#num_arg==0 and last_stroke=='0') then -- 0 as first number - nah
         num_arg = num_arg .. last_stroke
         
         return true
@@ -737,6 +738,14 @@ command.add(nil, {
       doc():move_to(function() return line, col end, dv())
     end
     assert(load(text))()
+  end,
+  
+  ["core:exec-file"] = function()
+    assert(load(table.concat(doc().lines)))()
+  end,
+
+  ["so % core:exec-file"] = function()
+    command.perform("core:exec-file")
   end,
 
   ["modalediting:copy"] = function()
