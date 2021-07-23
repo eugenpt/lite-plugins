@@ -144,9 +144,18 @@ local function isUpperCase(letter)
   return letter:upper()==letter and letter:lower()~=letter
 end
 
+function string:find_literal(substr)
+  for j=1, (#self - #substr + 1) do
+    if self:sub(j, j + #substr - 1) == substr then
+      return j
+    end
+  end
+  return nil
+end
+
 local function isNumber(char)
   local s = '0123456789'
-  return s:find(char) and true or false
+  return s:find_literal(char) and true or false
 end
 
 -------------------------------------------------------------------------------
